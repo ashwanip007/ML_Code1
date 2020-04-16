@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.model_selection import StratifiedShuffleSplit
 from pandas.plotting import scatter_matrix
 import hashlib
@@ -173,7 +174,7 @@ So ScikitLearn provide OneHotEncoder
 """
 encoder = OneHotEncoder()
 # Note fit_transform expects a 2D array, but housing_cat_encoded is 1D array
-housing_cat_1hot = encoder.fit_transform(housing_cat_encoded.reshape(-1,1))
+housing_cat_1hot = encoder.fit_transform(housing_cat_encoded.reshape(-1, 1))
 # print(housing_cat_1hot) ; Result will not be as text but it will be a SciPy sparse matrix, instead of NumPy array, So
 print(housing_cat_1hot.toarray())
 
@@ -185,5 +186,27 @@ housing_cat_1hot = encoder.fit_transform(housing_cat)
 print(housing_cat_1hot)
 # Notice this return dense NumPy array by default
 """
+# Custom Transformers
+# from sklearn.base import BaseEstimator, TransformerMixin
+rooms_ix, bedrooms_ix, population_ix, household_ix = 3, 4, 5, 6
 
 
+class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
+    def __init__(self, add_bedrooms_per_room=True):               # No *args or kargs
+        self.add_bedrooms_per_room = add_bedrooms_per_room
+
+    def fit(self, X, y=None):
+        return self                                                 # Nothing else to do
+
+    def transform(self, X, y=None):
+        rooms_per_household = X[:, rooms_ix] / X[:, household_ix]
+        population_per_household = X[:, population_ix] / X[:, household_ix]
+        if self.add_bedrooms_per_room:
+            bedrooms_per_room = X[:, bedrooms_ix] / X[:, rooms_ix]
+            return np.c_[X, rooms_per_household, population_per_household, bedrooms_per_room]
+        else:
+            return np.c_[X, rooms_per_household, population_per_household]
+
+
+attr_adder = CombinedAttributesAdder(add_bedrooms_per_room=False)
+housing_extra_attribs = attr_adder.transform(housing.values)
