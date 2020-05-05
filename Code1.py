@@ -6,8 +6,10 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import numpy as np
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder, LabelBinarizer
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit
 from pandas.plotting import scatter_matrix
 import hashlib
@@ -189,10 +191,11 @@ print(housing_cat_1hot)
 # Custom Transformers
 # from sklearn.base import BaseEstimator, TransformerMixin
 rooms_ix, bedrooms_ix, population_ix, household_ix = 3, 4, 5, 6
+# To be used for slicing
 
 
 class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
-    def __init__(self, add_bedrooms_per_room=True):               # No *args or kargs
+    def __init__(self, add_bedrooms_per_room=True):                 # No *args or kargs
         self.add_bedrooms_per_room = add_bedrooms_per_room
 
     def fit(self, X, y=None):
@@ -210,3 +213,80 @@ class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
 
 attr_adder = CombinedAttributesAdder(add_bedrooms_per_room=False)
 housing_extra_attribs = attr_adder.transform(housing.values)
+
+"""
+np.c_ is used for concatenating the array along the 1st axis. add_bedrooms_per_room set to true by default (sensible
+default). Generally add hyper parameter for which you are not 100% sure. Automate it to find great combination.
+
+### Feature Scaling (Two Common Way's)###
+Min-Max: Subtracting min value dividing by max minus min (ScikitLearn's MinMaxScaler with feature_range).
+Standardization: First subtracts the mean value (Standardized values always have 0 mean) then divide by hte variance
+so that the resulting variance have the unit variance. (Less affected by outliers) (StanderedScaler)
+
+### Transformation Pipelines ###
+All but the last estimator must be transformers (i.e., they must have a fit_transform() method).
+When you call the pipeline’s fit() method, it calls fit_transform() sequentially on all transformers.
+Passing output of each as parameter to next call, until it reaches final estimator, for it just calls fit() method.
+
+num_pipeline = Pipeline([
+            ('imputer', Imputer(strategy="median")),
+            ('attribs_adder', CombinedAttributesAdder()),
+            ('std_scaler', StandardScaler()),
+        ])
+housing_num_tr = num_pipeline.fit_transform(housing_num)
+
+In this example, the last estimator is a StandardScaler, which is a transformer, so the pipeline has a transform()
+method that applies all the transforms to the data in sequence. This pipeline is for numerical values, for categorical
+value ? SKL provide FeatureUnion class for this. You give a list of transformers (Which can be entire transformers
+pipeline), and when transform() method is called it runs each transformer's transform() method in parallel, waits for
+their output, and then concatenates them and return the result.
+"""
+
+
+class DataFrameSelector(BaseEstimator, TransformerMixin):
+    def __init__(self, attribute_names):
+        self.attribute_names = attribute_names
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return X[self.attribute_names].values
+
+# There is nothing in SKL to handle Pandas DataFrame so we need to write a simple custome transformer
+
+num_attribs = list(housing_num)
+cat_attribs = ["ocean_proximity"]
+
+num_pipeline = Pipeline([
+    ('selector', DataFrameSelector(num_attribs)),
+    ('imputer', SimpleImputer(strategy="median")),
+    ('attribs_adder', CombinedAttributesAdder()),
+    ('std_scaler', StandardScaler())
+        ])
+
+cat_pipeline = Pipeline([
+    ('selector', DataFrameSelector(cat_attribs)),
+    ('label_binarizer', LabelBinarizer())
+])
+
+full_pipeline = FeatureUnion(transformer_list=[
+    ("num_pipeline", num_pipeline),
+    ("cat_pipeline", cat_pipeline)
+])
+
+# We can run the whole pipeline simply:
+housing_prepared = full_pipeline.fit_transform(housing_num)
+print(housing_prepared)
+
+"""
+class LabelBinarizerPipelineFriendly(LabelBinarizer):
+    def fit(self, X, y=None):
+        # this would allow us to fit the model based on the X input.
+        super(LabelBinarizerPipelineFriendly, self).fit(X)
+    def transform(self, X, y=None):
+        return super(LabelBinarizerPipelineFriendly, self).transform(X)
+
+    def fit_transform(self, X, y=None):
+        return super(LabelBinarizerPipelineFriendly, self).fit(X).transform(X)
+"""
